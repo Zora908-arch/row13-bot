@@ -1,14 +1,31 @@
 
 import os
+import time
+import threading
 import telebot
 from flask import Flask, request
 
 TOKEN = os.environ.get("BOT_TOKEN")
-bot = telebot.TeleBot(TOKEN)
+URL = os.environ.get("RENDER_EXTERNAL_URL")
 
+if not TOKEN or not URL:
+    raise RuntimeError("Missing BOT_TOKEN or RENDER_EXTERNAL_URL")
+
+bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
-@bot.message_handler(commands=['start'])
+@app.route("/")
+def home():
+    return "Row 13 Bot is running!"
+
+@app.route("/" + TOKEN, methods=["POST"])
+def webhook():
+    data = request.get_json()
+    update = telebot.types.Update.de_json(data)
+    bot.process_new_updates([update])
+    return "OK", 200
+
+@bot.message_handler(commands=["start"])
 def start(message):
     bot.reply_to(
         message,
@@ -17,19 +34,30 @@ def start(message):
         "Let's talk movies! 🍿"
     )
 
-@app.route('/')
-def home():
-    return "Row 13 Bot is running!"
+def setup_webhook():
+    target = URL + "/" + TOKEN
 
-@app.route('/' + TOKEN, methods=['POST'])
-def webhook():
-    json_data = request.get_json()
-    update = telebot.types.Update.de_json(json_data)
-    bot.process_new_updates([update])
-    return "OK", 200
+    while True:
+        try:
+            info = bot.get_webhook_info()
 
-if __name__ == '__main__':
-    url = os.environ.get("RENDER_EXTERNAL_URL")
-    bot.remove_webhook()
-    bot.set_webhook(url=url + '/' + TOKEN)
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10000)))
+            if info.url != target:
+                bot.set_webhook(url=target)
+
+            print("Webhook connected successfully!")
+            break
+
+        except Exception as e:
+            print("Webhook error:", e)
+            time.sleep(30)
+
+if __name__ == "__main__":
+    threading.Thread(
+        target=setup_webhook,
+        daemon=True
+    ).start()
+
+    app.run(
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 10000))
+    )
